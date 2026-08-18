@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>Pedal Capture</title>
+<style>
+  :root{
+    --bg:#0b0c0e;
+    --panel:#15171b;
+    --line:#262a30;
+    --ink:#e8eaed;
+    --dim:#8b929c;
+    --amber:#f5b841;   /* armed / frame count */
+    --green:#57d98a;   /* sent ok */
+    --red:#f2665e;     /* error */
+    --mono:"SF Mono",ui-monospace,"Roboto Mono",Menlo,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);font-family:var(--sans)}
+  body{display:flex;flex-direction:column;overflow:hidden;
+       padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+
+  /* Viewfinder */
+  .stage{position:relative;flex:1;min-height:0;background:#000;overflow:hidden}
+  video{width:100%;height:100%;object-fit:cover;display:block}
+  .flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
+  .flash.go{animation:flash .18s ease-out}
+  @keyframes flash{from{opacity:.85}to{opacity:0}}
+
+  /* HUD overlay */
+  .hud{position:absolute;inset:0;pointer-events:none;display:flex;flex-direction:column;justify-content:space-between;
+       padding:14px 16px}
+  .hud .top{display:flex;justify-content:space-between;align-items:flex-start}
+  .count{font-family:var(--mono);font-size:56px;line-height:.9;font-weight:600;color:var(--amber);
+         text-shadow:0 1px 12px rgba(0,0,0,.6)}
+  .count small{display:block;font-size:11px;letter-spacing:.18em;color:var(--dim);font-weight:500;margin-top:6px}
+  .count.empty{color:var(--dim)}
+  .gear{pointer-events:auto;width:44px;height:44px;border-radius:12px;border:1px solid var(--line);
+        background:rgba(10,11,13,.55);color:var(--ink);font-size:20px;backdrop-filter:blur(6px)}
+  .status{font-family:var(--mono);font-size:13px;letter-spacing:.03em;color:var(--dim);
+          background:rgba(10,11,13,.55);border:1px solid var(--line);border-radius:10px;
+          padding:8px 12px;align-self:flex-start;max-width:100%;backdrop-filter:blur(6px)}
+  .status .dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--dim);margin-right:8px;vertical-align:middle}
+  .status.busy .dot{background:var(--amber);animation:pulse 1s infinite}
+  .status.ok .dot{background:var(--green)}
+  .status.err .dot{background:var(--red)}
+  @keyframes pulse{50%{opacity:.3}}
+
+  /* Answer readout */
+  .answer{max-height:34vh;overflow:auto;font-size:15px;line-height:1.5;white-space:pre-wrap;
+          padding:14px 16px;border-top:1px solid var(--line);background:var(--panel);display:none}
+  .answer.show{display:block}
+  .answer b{color:var(--amber)}
+
+  /* Controls */
+  .bar{display:flex;gap:10px;padding:12px 14px;border-top:1px solid var(--line);background:var(--bg)}
+  .btn{flex:1;border:1px solid var(--line);background:var(--panel);color:var(--ink);
+       font-family:var(--sans);font-size:15px;font-weight:600;padding:16px;border-radius:14px}
+  .btn:active{transform:translateY(1px)}
+  .btn.add{border-color:#3a3320;color:var(--amber)}
+  .btn.send{border-color:#22402f;color:var(--green)}
+  .btn kbd{display:block;font-family:var(--mono);font-size:11px;font-weight:500;color:var(--dim);margin-top:4px;letter-spacing:.1em}
+  .btn:disabled{opacity:.4}
+
+  /* Start gate */
+  .gate{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+        gap:18px;background:var(--bg);z-index:5;text-align:center;padding:32px}
+  .gate h1{font-family:var(--mono);font-size:20px;letter-spacing:.06em;margin:0;font-weight:600}
+  .gate p{color:var(--dim);font-size:14px;line-height:1.5;margin:0;max-width:300px}
+  .gate button{border:1px solid var(--amber);background:transparent;color:var(--amber);
+        font-family:var(--mono);letter-spacing:.08em;font-size:15px;padding:16px 28px;border-radius:14px}
+
+  /* Settings drawer */
+  .drawer{position:absolute;inset:0;background:rgba(4,5,6,.72);z-index:10;display:none}
+  .drawer.show{display:block}
+  .sheet{position:absolute;left:0;right:0;bottom:0;max-height:88%;overflow:auto;background:var(--panel);
+         border-top:1px solid var(--line);border-radius:18px 18px 0 0;padding:20px 18px 28px}
+  .sheet h2{font-family:var(--mono);font-size:14px;letter-spacing:.1em;color:var(--dim);margin:0 0 16px;text-transform:uppercase}
+  label{display:block;font-size:12px;color:var(--dim);margin:14px 0 6px;letter-spacing:.02em}
+  input,textarea{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:10px;
+         color:var(--ink);font-family:var(--mono);font-size:14px;padding:12px}
+  textarea{font-family:var(--sans);min-height:72px;resize:vertical}
+  .hint{font-size:11px;color:var(--dim);margin-top:5px;line-height:1.4}
+  .done{margin-top:22px;width:100%;border:1px solid var(--amber);background:transparent;color:var(--amber);
+        font-family:var(--mono);letter-spacing:.08em;font-size:15px;padding:15px;border-radius:12px}
+</style>
+</head>
+<body>
+
+<div class="stage">
+  <video id="video" playsinline muted autoplay></video>
+  <div class="flash" id="flash"></div>
+
+  <div class="hud">
+    <div class="top">
+      <div class="count empty" id="count">0<small>FRAMES</small></div>
+      <button class="gear" id="gear" aria-label="Settings">⚙</button>
+    </div>
+    <div class="status" id="status"><span class="dot"></span>Ready</div>
+  </div>
+
+  <div class="gate" id="gate">
+    <h1>PEDAL CAPTURE</h1>
+    <p>Space adds a frame. Enter captures and sends the batch to Gemini, and the answer goes to Telegram.</p>
+    <button id="startBtn">Start camera</button>
+    <p id="gateNote" style="font-size:12px"></p>
+  </div>
+</div>
+
+<div class="answer" id="answer"></div>
+
+<div class="bar">
+  <button class="btn add" id="addBtn">Add frame<kbd>SPACE</kbd></button>
+  <button class="btn send" id="sendBtn">Capture &amp; send<kbd>ENTER</kbd></button>
+</div>
+
+<div class="drawer" id="drawer">
+  <div class="sheet">
+    <h2>Settings</h2>
+    <label>Gemini API key</label>
+    <input id="s_gkey" type="password" placeholder="AIza…" autocomplete="off">
+    <div class="hint">From ai.google.dev — stored only on this device, never in the page file.</div>
+
+    <label>Gemini model</label>
+    <input id="s_model" type="text" placeholder="gemini-3.5-flash">
+    <div class="hint">For the hardest math, use a Pro / Thinking model. Check ai.google.dev for current names.</div>
+
+    <label>Prompt</label>
+    <textarea id="s_prompt"></textarea>
+
+    <label>Telegram bot token</label>
+    <input id="s_ttoken" type="password" placeholder="123456:AA…" autocomplete="off">
+
+    <label>Telegram chat ID</label>
+    <input id="s_tchat" type="text" placeholder="e.g. 12345678">
+
+    <button class="done" id="saveBtn">Save</button>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const DEFAULT_PROMPT =
+  "First, transcribe every problem shown in the image(s) exactly as it appears. " +
+  "Then solve step by step. End with a line starting 'FINAL ANSWER:'. " +
+  "If there are multiple images, treat them as one combined problem set.";
+
+// ---- settings persistence ----
+const cfg = {
+  get gkey(){return localStorage.getItem('gkey')||''},
+  get model(){return localStorage.getItem('model')||'gemini-3.5-flash'},
+  get prompt(){return localStorage.getItem('prompt')||DEFAULT_PROMPT},
+  get ttoken(){return localStorage.getItem('ttoken')||''},
+  get tchat(){return localStorage.getItem('tchat')||''},
+};
+function loadSettingsForm(){
+  $('s_gkey').value=cfg.gkey; $('s_model').value=cfg.model; $('s_prompt').value=cfg.prompt;
+  $('s_ttoken').value=cfg.ttoken; $('s_tchat').value=cfg.tchat;
+}
+$('saveBtn').onclick=()=>{
+  localStorage.setItem('gkey',$('s_gkey').value.trim());
+  localStorage.setItem('model',$('s_model').value.trim()||'gemini-3.5-flash');
+  localStorage.setItem('prompt',$('s_prompt').value.trim()||DEFAULT_PROMPT);
+  localStorage.setItem('ttoken',$('s_ttoken').value.trim());
+  localStorage.setItem('tchat',$('s_tchat').value.trim());
+  $('drawer').classList.remove('show');
+  setStatus('Settings saved','ok');
+};
+$('gear').onclick=()=>{loadSettingsForm();$('drawer').classList.add('show')};
+$('drawer').onclick=e=>{if(e.target===$('drawer'))$('drawer').classList.remove('show')};
+
+// ---- status / counter ----
+const buffer=[];
+function setStatus(msg,kind){ const s=$('status'); s.className='status'+(kind?' '+kind:''); s.innerHTML='<span class="dot"></span>'+msg; }
+function setCount(){ const c=$('count'); c.innerHTML=buffer.length+'<small>FRAMES</small>'; c.classList.toggle('empty',buffer.length===0); }
+
+// ---- camera ----
+let stream=null, wake=null;
+const video=$('video');
+async function startCamera(){
+  try{
+    stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+    video.srcObject=stream; await video.play();
+    $('gate').style.display='none';
+    try{ wake=await navigator.wakeLock.request('screen'); }catch(e){}
+    setStatus('Ready — press the pedal','');
+  }catch(err){
+    $('gateNote').textContent='Camera blocked: '+err.message+'. Allow camera access in Safari and reload.';
+  }
+}
+$('startBtn').onclick=startCamera;
+document.addEventListener('visibilitychange',async()=>{ // re-arm wake lock when returning
+  if(document.visibilityState==='visible'&&stream){try{wake=await navigator.wakeLock.request('screen')}catch(e){}}
+});
+
+// ---- capture a frame -> dataURL ----
+const canvas=document.createElement('canvas');
+function grab(){
+  if(!stream) return null;
+  const w=video.videoWidth,h=video.videoHeight; if(!w) return null;
+  canvas.width=w; canvas.height=h;
+  canvas.getContext('2d').drawImage(video,0,0,w,h);
+  $('flash').classList.remove('go'); void $('flash').offsetWidth; $('flash').classList.add('go');
+  return canvas.toDataURL('image/jpeg',0.9);
+}
+function addFrame(){
+  const d=grab(); if(!d){setStatus('Camera not ready','err');return;}
+  buffer.push(d); setCount(); setStatus('+1 frame  ('+buffer.length+' buffered)','');
+}
+
+// ---- send batch ----
+let sending=false;
+async function sendBatch(){
+  if(sending) return;
+  const d=grab(); if(d) buffer.push(d);      // Enter also captures a frame
+  if(!buffer.length){setStatus('Nothing to send','err');return;}
+  if(!cfg.gkey||!cfg.ttoken||!cfg.tchat){setStatus('Add keys in settings ⚙','err');$('drawer').classList.add('show');loadSettingsForm();return;}
+  sending=true; disable(true);
+  const n=buffer.length;
+  setStatus('Thinking on '+n+' image'+(n>1?'s':'')+'…','busy');
+  try{
+    const answer=await askGemini(buffer.slice());
+    $('answer').innerHTML=''; $('answer').textContent=answer; $('answer').classList.add('show');
+    setStatus('Sending to Telegram…','busy');
+    await sendTelegram(answer);
+    buffer.length=0; setCount();
+    setStatus('Sent ✓  Ready for next','ok');
+  }catch(err){
+    setStatus('Error: '+err.message,'err');
+  }finally{ sending=false; disable(false); }
+}
+function disable(v){ $('addBtn').disabled=v; $('sendBtn').disabled=v; }
+
+async function askGemini(images){
+  const url='https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(cfg.model)+':generateContent';
+  const parts=[{text:cfg.prompt}];
+  for(const d of images) parts.push({inline_data:{mime_type:'image/jpeg',data:d.split(',')[1]}});
+  const res=await fetch(url,{
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-goog-api-key':cfg.gkey},
+    body:JSON.stringify({contents:[{parts}],generationConfig:{maxOutputTokens:4096}})
+  });
+  const j=await res.json();
+  if(!res.ok) throw new Error((j.error&&j.error.message)||('HTTP '+res.status));
+  const cand=j.candidates&&j.candidates[0];
+  const text=cand&&cand.content&&cand.content.parts?cand.content.parts.map(p=>p.text).filter(Boolean).join(''):'';
+  if(!text) throw new Error(cand&&cand.finishReason?('no text ('+cand.finishReason+')'):'empty response');
+  return text;
+}
+
+async function sendTelegram(text){
+  const url='https://api.telegram.org/bot'+cfg.ttoken+'/sendMessage';
+  for(let i=0;i<text.length;i+=4000){
+    const chunk=text.slice(i,i+4000);
+    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({chat_id:cfg.tchat,text:chunk})});
+    if(!res.ok){const j=await res.json().catch(()=>({}));throw new Error('Telegram: '+((j&&j.description)||res.status));}
+  }
+}
+
+// ---- pedal keys ----
+$('addBtn').onclick=addFrame;
+$('sendBtn').onclick=sendBatch;
+document.addEventListener('keydown',e=>{
+  if($('drawer').classList.contains('show')) return;          // ignore while typing settings
+  if(e.code==='Space'||e.key===' '){ e.preventDefault(); addFrame(); }
+  else if(e.code==='Enter'||e.key==='Enter'){ e.preventDefault(); sendBatch(); }
+});
+
+// first run: open settings if no key yet
+if(!cfg.gkey){ $('gateNote').textContent='Tip: after starting, open ⚙ to paste your keys.'; }
+setCount();
+</script>
+</body>
+</html>
