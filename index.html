@@ -210,7 +210,7 @@ function addFrame(){
   buffer.push(d); setCount(); setStatus('+1 frame  ('+buffer.length+' buffered)','');
 }
 
-// ---- send batch ----
+// ----- send batch -----
 let sending=false;
 async function sendBatch(){
   if(sending) return;
